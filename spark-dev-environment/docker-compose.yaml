@@ -1,38 +1,49 @@
+x-spark-build: &spark-build
+  context: .
+  dockerfile: Dockerfile
+  target: spark
+  args:
+    SPARK_IMAGE: apache/spark:4.3.0-scala2.13-java21-python3-ubuntu
+
 services:
   spark-master:
-    image: apache/spark:latest
+    build: *spark-build
+    image: custom-spark-s3a:4.3.0
     container_name: spark-master
     hostname: spark-master
     ports:
-      - "9090:8080" # Master Web UI
-      - "7077:7077" # Spark Master Communication
-    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+      - "9090:8080"
+      - "7077:7077"
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
     volumes:
       - ./data:/opt/spark/data
 
   spark-worker:
-    image: apache/spark:latest
+    build: *spark-build
+    image: custom-spark-s3a:4.3.0
     container_name: spark-worker
     depends_on:
       - spark-master
-    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
     environment:
-      - SPARK_WORKER_CORES=2
-      - SPARK_WORKER_MEMORY=2g
+      SPARK_WORKER_CORES: "2"
+      SPARK_WORKER_MEMORY: 2g
     volumes:
       - ./data:/opt/spark/data
 
   jupyter:
-    image: jupyter/pyspark-notebook:latest
+    build:
+      <<: *spark-build
+      target: jupyter
+    image: custom-jupyter-s3a:4.3.0
     container_name: jupyter-node
+    # Executors connect back to the driver by this name (spark.driver.host).
+    hostname: jupyter
+    depends_on:
+      - spark-master
     ports:
-      - "8888:8888" # Jupyter Interface
-      - "4040:4040" # Spark Driver UI
-    environment:
-      - JUPYTER_ENABLE_LAB=yes
-      - JUPYTER_TOKEN=""          # Bypasses the token requirement
-      - JUPYTER_PASSWORD=""       # Bypasses the password requirement
-    command: start-notebook.sh --NotebookApp.token='' --NotebookApp.password=''
+      - "127.0.0.1:8888:8888"
+      - "127.0.0.1:4040:4040"
     volumes:
       - ./notebook-work:/home/CDE/notebook-work
-      - ./data:/home/CDE/data
+      - ./data:/opt/spark/data
